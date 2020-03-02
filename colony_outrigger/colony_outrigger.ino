@@ -28,7 +28,6 @@
 
 #define LOADCELL_DOUT_PIN  10
 #define LOADCELL_SCK_PIN  9
-HX711 scale;
 
 /********************************************/
 
@@ -91,18 +90,20 @@ RHReliableDatagram rf69_manager(rf69, MY_ADDRESS);
 
 int16_t packetnum = 0;  // packet counter, we increment per xmission
 
-
+HX711 scale;
 float calibration_factor = 225820; //225820 for the 5kg sparkfun load cell
-int thresh_min = 170, thresh_max = 190;
+int thresh_min = 170, thresh_max = 200;
 int weight;
 
 boolean triggered = false, has_manners = true;
 
+boolean debug = false;
+
 
 void setup()
 {
-  Serial.begin(115200);
-  while (!Serial) { delay(1); } // wait until serial console is open, remove if not tethered to computer
+  if (debug) Serial.begin(115200);
+  if (debug) while (!Serial) { delay(1); } // wait until serial console is open, remove if not tethered to computer
 
 
   scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
@@ -114,8 +115,8 @@ void setup()
   pinMode(RFM69_RST, OUTPUT);
   digitalWrite(RFM69_RST, LOW);
 
-  Serial.println("Feather Addressed RFM69 TX Test!");
-  Serial.println();
+  if (debug) Serial.println("Feather Addressed RFM69 TX Test!");
+  if (debug) Serial.println();
 
   // manual reset
   digitalWrite(RFM69_RST, HIGH);
@@ -124,14 +125,14 @@ void setup()
   delay(10);
 
   if (!rf69_manager.init()) {
-    Serial.println("RFM69 radio init failed");
+    if (debug) Serial.println("RFM69 radio init failed");
     while (1);
   }
-  Serial.println("RFM69 radio init OK!");
+  if (debug) Serial.println("RFM69 radio init OK!");
   // Defaults after init are 434.0MHz, modulation GFSK_Rb250Fd250, +13dbM (for low power module)
   // No encryption
   if (!rf69.setFrequency(RF69_FREQ)) {
-    Serial.println("setFrequency failed");
+    if (debug) Serial.println("setFrequency failed");
   }
 
   // If you are using a high power RF69 eg RFM69HW, you *must* set a Tx power with the
@@ -146,7 +147,7 @@ void setup()
 
   pinMode(LED, OUTPUT);
 
-  Serial.print("RFM69 radio @");  Serial.print((int)RF69_FREQ);  Serial.println(" MHz");
+  if (debug) Serial.print("RFM69 radio @");  if (debug) Serial.print((int)RF69_FREQ);  if (debug) Serial.println(" MHz");
 }
 
 
@@ -161,7 +162,7 @@ void loop() {
   /* delay(1000);  // Wait 1 second between transmits, could also 'sleep' here! */
 
   weight = int(scale.get_units() * 1000);
-  Serial.print("reading: "); Serial.println(weight);
+  if (debug) Serial.print("reading: "); if (debug) Serial.println(weight);
 
 
   if (weight > thresh_min && weight < thresh_max && triggered == false) {
@@ -184,7 +185,7 @@ void loop() {
 }
 
 void transmit(char message[]) {
-  Serial.print("Sending "); Serial.println(message);
+  if (debug) Serial.print("Sending "); if (debug) Serial.println(message);
 
     // Send a message to the DESTINATION!
     if (rf69_manager.sendtoWait((uint8_t *)message, strlen(message), DEST_ADDRESS)) {
@@ -194,17 +195,17 @@ void transmit(char message[]) {
       if (rf69_manager.recvfromAckTimeout(buf, &len, 2000, &from)) {
         buf[len] = 0; // zero out remaining string
 
-        Serial.print("Got reply from #"); Serial.print(from);
-        Serial.print(" [RSSI :");
-        Serial.print(rf69.lastRssi());
-        Serial.print("] : ");
-        Serial.println((char*)buf);
+        if (debug) Serial.print("Got reply from #"); if (debug) Serial.print(from);
+        if (debug) Serial.print(" [RSSI :");
+        if (debug) Serial.print(rf69.lastRssi());
+        if (debug) Serial.print("] : ");
+        if (debug) Serial.println((char*)buf);
         Blink(LED, 40, 3); //blink LED 3 times, 40ms between blinks
       } else {
-        Serial.println("No reply, is anyone listening?");
+        if (debug) Serial.println("No reply, is anyone listening?");
       }
     } else {
-      Serial.println("Sending failed (no ack)");
+      if (debug) Serial.println("Sending failed (no ack)");
     }
 }
 

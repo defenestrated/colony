@@ -57,9 +57,9 @@ fading = false,
   debug = true;
 
 
-// outrigger addresses: 101, 102, 103, 104, 105, 106
+// outrigger addresses: 106, 105, 104, 103, 102, 101
 boolean outriggers[6]; // all set to false initially, individually set to true once they say hello
-
+int outrigger_count = 0;
 
 String command;
 
@@ -163,11 +163,37 @@ void loop() {
     if (rf69_manager.recvfromAck(buf, &len, &from)) {
       buf[len] = 0; // zero out remaining string
 
-      if (debug) Serial.print("Got packet from #"); if (debug) Serial.print(from);
-      if (debug) Serial.print(" [RSSI :");
-      if (debug) Serial.print(rf69.lastRssi());
-      if (debug) Serial.print("] : ");
-      if (debug) Serial.println((char*)buf);
+      if (debug) {
+        Serial.print("Got packet from #"); if (debug) Serial.print(from);
+        Serial.print(" [RSSI :");
+        Serial.print(rf69.lastRssi());
+        Serial.print("] : ");
+        Serial.println((char*)buf);
+      }
+
+      if (strcmp(buf, "hello") == 0) {
+        outriggers[106-from] = true;
+
+        if (debug) {
+          Serial.print("hello outrigger ");
+          Serial.print(from);
+          Serial.print(" -- outriggers now:");
+          for (int o = 0; o < 6; o++) {
+            Serial.print(outriggers[o]);
+            Serial.print(" ");
+          }
+        }
+      }
+      if (from == 101 && strcmp(buf, "go") == 0) {
+        command = "go";
+      }
+      if (from == 101 && strcmp(buf, "reset") == 0) {
+        command = "stop";
+      }
+
+
+
+
       Blink(LED, 40, 3); //blink LED 3 times, 40ms between blinks
 
       // Send a reply back to the originator client
@@ -175,6 +201,8 @@ void loop() {
         if (debug) Serial.println("Sending failed (no ack)");
     }
   }
+
+
   if(fading) {
       fade_progress = millis() - fade_start;
 
