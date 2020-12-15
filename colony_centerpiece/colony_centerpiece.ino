@@ -31,7 +31,7 @@ RHReliableDatagram rf69_manager(rf69, MY_ADDRESS);
 
 /************* other setup **************/
 
-const int num_pixels = 20;
+const int num_pixels = 25;
 const float pi = 3.14159265359;
 float theta[num_pixels][4];
 float speeds[num_pixels][4];
@@ -40,12 +40,13 @@ int rounded[num_pixels][4];
 float masterfade[num_pixels];
 
 float fade_on_speed = 0.005, fade_off_speed = 0.05;
-float fade_on_total_time = 9000, fade_off_total_time = 3000; // time from all off to all on
+float fade_on_total_time = 2000, fade_off_total_time = 3000; // time from all off to all on
 
 float randomdetail = 100000;
 float minspeed = 0.00001;
 float maxspeed = 0.1;
 float maxbrightness[4] = {80, 255, 30, 70};  // GREEN FIRST - grbw
+/* float maxbrightness[4] = {70,200,0,255};  // GREEN FIRST - grbw */
 
 unsigned long starttime = 0;
 int speedsettimer = 30; // in seconds
@@ -73,7 +74,7 @@ Adafruit_NeoPixel strip = Adafruit_NeoPixel(num_pixels, NEOPIN, NEO_RGBW + NEO_K
 void setup()
 {
   if (debug) Serial.begin(115200);
-  if (debug) while (!Serial) { delay(1); } // wait until serial console is open, remove if not tethered to computer
+  // if (debug) while (!Serial) { delay(1); } // wait until serial console is open, remove if not tethered to computer
 
 
   if (debug) Serial.println("---------");
@@ -184,10 +185,10 @@ void loop() {
           }
         }
       }
-      if (from == 101 && strcmp(buf, "go") == 0) {
+      if (from == 101 && strcmp(buf, "complete") == 0) {
         command = "go";
       }
-      if (from == 101 && strcmp(buf, "reset") == 0) {
+      if (from == 101 && strcmp(buf, "uncomplete") == 0) {
         command = "stop";
       }
 
@@ -214,11 +215,13 @@ void loop() {
       if (fade_direction && s == num_pixels) fading = false; // 1's accross the board, fading up
       if (!fade_direction && s == 0) fading = false; // 0's, fading down
 
-      else { // fade away
+      else { // do the fade!
         for (int i = 0; i < num_pixels; i++) {
 
           if (fade_direction) {
-            float where_am_i = float(i) / float(num_pixels);
+            /* float where_am_i = float(i) / float(num_pixels); // linear */
+            float where_am_i = pow(float(i) / float(num_pixels), 2.5); // exponential
+
             if (where_am_i < fade_progress / fade_on_total_time) {
               if (masterfade[i] < 1-fade_on_speed) {
                 masterfade[i] += fade_on_speed;
@@ -227,7 +230,7 @@ void loop() {
             }
           }
           else if (!fade_direction) {
-            float where_am_i = float(num_pixels - i) / float(num_pixels);
+            float where_am_i = float(num_pixels - i) / float(num_pixels); // linear
             if (where_am_i < fade_progress / fade_off_total_time) {
               if (masterfade[i] > fade_off_speed) {
                 masterfade[i] -= fade_off_speed;
