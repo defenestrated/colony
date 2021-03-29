@@ -39,6 +39,10 @@
 */
 
 #include <OctoWS2811.h>
+#include <SPI.h>
+#include <RH_RF69.h>
+#include <RHReliableDatagram.h>
+#include <RHHardwareSPI1.h>
 
 const int px_per_channel = 72;
 
@@ -51,6 +55,26 @@ OctoWS2811 leds(px_per_channel, displayMemory, drawingMemory, config);
 
 
 
+/************ Radio Setup ***************/
+
+// Change to 434.0 or other frequency, must match RX's freq!
+#define RF69_FREQ 915.0
+
+// who am i? (server address)
+#define MY_ADDRESS    1
+
+#define RFM69_INT     37  //  -> G0
+#define RFM69_CS      38  //  -> CS
+#define RFM69_RST     36  //  -> RST
+#define LED           13
+
+// Singleton instance of the radio driver USING SPI1
+RH_RF69 rf69(RFM69_CS, RFM69_INT, hardware_spi1);
+// Class to manage message delivery and receipt, using the driver declared above
+RHReliableDatagram rf69_manager(rf69, MY_ADDRESS);
+
+/****************************************/
+
 /************* other setup **************/
 
 const int channels = 6;
@@ -62,11 +86,11 @@ int rounded[channels][px_per_channel][4];
 float masterfade[channels][px_per_channel];
 
 float fade_on_speed = 0.005, fade_off_speed = 0.05;
-float fade_on_total_time = 4000, fade_off_total_time = 3000; // time from all off to all on
+float fade_on_total_time = 6000, fade_off_total_time = 3000; // time from all off to all on
 
 float randomdetail = 100000;
 float minspeed = 0.00001;
-float maxspeed = 0.1;
+float maxspeed = 0.05;
 float maxbrightness[4] = {80, 255, 30, 70};  // GREEN FIRST - grbw
 /* float maxbrightness[4] = {70,200,0,255};  // GREEN FIRST - grbw */
 
@@ -99,15 +123,107 @@ void setup() {
       Serial.print(outriggers[o]);
       Serial.print(" ");
   }
-
   if (debug) Serial.println();
+
+
+  SPI1.setCS(38);
+  SPI1.setMISO(39);
+  SPI1.begin();
+
+
+  pinMode(LED, OUTPUT);
+  pinMode(RFM69_RST, OUTPUT);
+  digitalWrite(RFM69_RST, LOW);
+
+  // manual reset
+  digitalWrite(RFM69_RST, HIGH);
+  delay(10);
+  digitalWrite(RFM69_RST, LOW);
+  delay(10);
+
+
+  if (!rf69_manager.init()) {
+    if (debug) Serial.println("RFM69 radio init failed");
+    while (1);
+  }
+  if (debug) Serial.println("RFM69 radio init OK!");
+  // Defaults after init are 434.0MHz, modulation GFSK_Rb250Fd250, +13dbM (for low power module)
+  // No encryption
+  if (!rf69.setFrequency(RF69_FREQ)) {
+    if (debug) Serial.println("setFrequency failed");
+  }
+
+  // If you are using a high power RF69 eg RFM69HW, you *must* set a Tx power with the
+  // ishighpowermodule flag set like this:
+  rf69.setTxPower(20, true);  // range from 14-20 for power, 2nd arg must be true for 69HCW
+
+  // The encryption key has to be the same as the one in the server
+  uint8_t key[] = { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+                    0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
+  rf69.setEncryptionKey(key);
+
+  if (debug) Serial.print("RFM69 radio @");  if (debug) Serial.print((int)RF69_FREQ);  if (debug) Serial.println(" MHz");
+
 
   leds.begin();
   leds.show();
   changespeeds();
 }
 
+
+// Dont put this on the stack:
+uint8_t data[] = "And hello back to you";
+// Dont put this on the stack:
+uint8_t buf[RH_RF69_MAX_MESSAGE_LEN];
+
+
 void loop() {
+  if (rf69_manager.available())
+  {
+    // Wait for a message addressed to us from the client
+    uint8_t len = sizeof(buf);
+    uint8_t from;
+    if (rf69_manager.recvfromAck(buf, &len, &from)) {
+      buf[len] = 0; // zero out remaining string
+
+      if (debug) {
+        Serial.print("Got packet from #"); if (debug) Serial.print(from);
+        Serial.print(" [RSSI :");
+        Serial.print(rf69.lastRssi());
+        Serial.print("] : ");
+        Serial.println((char*)buf);
+      }
+
+      if (strcmp(buf, "hello") == 0) {
+        outriggers[106-from] = true;
+
+        if (debug) {
+          Serial.print("hello outrigger ");
+          Serial.print(from);
+          Serial.print(" -- outriggers now:");
+          for (int o = 0; o < 6; o++) {
+            Serial.print(outriggers[o]);
+            Serial.print(" ");
+          }
+        }
+      }
+      if (from == 101 && strcmp(buf, "complete") == 0) {
+        command = "go";
+      }
+      if (from == 101 && strcmp(buf, "uncomplete") == 0) {
+        command = "stop";
+      }
+
+
+
+
+      Blink(LED, 40, 3); //blink LED 3 times, 40ms between blinks
+
+      // Send a reply back to the originator client
+      if (!rf69_manager.sendtoWait(data, sizeof(data), from))
+        if (debug) Serial.println("Sending failed (no ack)");
+    }
+  }
 
   if(fading) {
       fade_progress = millis() - fade_start;
@@ -129,7 +245,7 @@ void loop() {
 
             if (fade_direction) {
               /* float where_am_i = float(i) / float(num_pixels); // linear */
-              float where_am_i = pow(float(px) / float(px_per_channel), 0.9); // exponential
+              float where_am_i = pow(float(px) / float(px_per_channel), 0.5); // exponential
 
               if (where_am_i < fade_progress / fade_on_total_time) {
                 if (masterfade[ch][px] < 1-fade_on_speed) {
@@ -139,7 +255,7 @@ void loop() {
               }
             }
             else if (!fade_direction) {
-              float where_am_i = pow(float(px) / float(px_per_channel), 2.5); // exponential
+              float where_am_i = pow(1- (float(px) / float(px_per_channel)), 2.5); // exponential
               if (where_am_i < fade_progress / fade_off_total_time) {
                 if (masterfade[ch][px] > fade_off_speed) {
                   masterfade[ch][px] -= fade_off_speed;
@@ -225,6 +341,17 @@ void loop() {
   leds.show();
   if (debug) delay(10);
 }
+
+
+void Blink(byte PIN, byte DELAY_MS, byte loops) {
+  for (byte i=0; i<loops; i++)  {
+    digitalWrite(PIN,HIGH);
+    delay(DELAY_MS);
+    digitalWrite(PIN,LOW);
+    delay(DELAY_MS);
+  }
+}
+
 
 float sinmap(float theta, int channel) {
   return ((sin(theta) + 1) / 2)*maxbrightness[channel];
